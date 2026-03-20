@@ -1,0 +1,316 @@
+---
+title: "Regression Analysis: Predicting Used Car Prices with Linear & Non-Linear Models"
+author: "Nna-dozie Odinaka"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: show
+    theme: flatly
+    highlight: tango
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+# Introduction
+
+The used car market involves thousands of transactions where the "right" price depends on a mix of quantitative features (age, mileage, horsepower) and categorical ones (transmission type, color). Getting the pricing model right matters for dealerships setting sticker prices, consumers negotiating fair deals, and platforms like CarMax or Carvana that automate valuations at scale.
+
+This project builds two progressively more sophisticated models:
+
+**Part 1 - Multiple Linear Regression:** Used car prices are modeled using 9 predictors. The analysis examines which features are statistically significant, checks for multicollinearity using VIF analysis, compares a full model against a reduced model, and answers specific business questions like "how much does price drop per year of age?"
+
+**Part 2 - Non-Linear Regression:** The analysis is extended with qualitative predictors (car color), interaction terms (does the effect of mileage depend on age?), and polynomial regression to capture curved relationships between mileage and price.
+
+**Tools used:** Base R, `car` (for VIF analysis)
+
+---
+
+# Part 1: Multiple Linear Regression
+
+## The Data
+
+The dataset contains used Toyota Corolla listings with the sale price and 9 features: Age (in months), KM (kilometers driven), HP (horsepower), Metallic (paint type), Automatic (transmission), CC (engine displacement), Doors, Gears, and Weight.
+
+```{r load-data}
+mydata <- read.csv("data/UsedCars.csv", header = TRUE)
+head(mydata, 10)
+attach(mydata)
+```
+
+## Full Model: All 9 Predictors
+
+The first step in regression analysis is typically to include all available predictors and examine which ones contribute meaningfully to explaining the outcome variable:
+
+```{r full-model}
+lm.res <- lm(Price ~ Age + KM + HP + Metallic + Automatic + CC + Doors + Gears + Weight,
+              data = mydata)
+lm.res
+names(lm.res)
+lm.res$coefficients
+```
+
+The full summary provides standard errors, t-values, and p-values for each coefficient:
+
+```{r full-summary}
+lm.sum <- summary(lm.res)
+lm.sum
+names(lm.sum)
+lm.sum$coefficients
+```
+
+## Fitted Values and Residuals
+
+The fitted values (`yhat`) are the model's predicted prices. The residuals (`uhat`) are the differences between actual and predicted prices. Examining these side by side gives a sense of how well the model performs on individual observations:
+
+```{r fitted-residuals}
+yhat <- fitted(lm.res)
+yhat
+uhat <- resid(lm.res)
+uhat
+cbind(Age, KM, HP, Metallic, Automatic, CC, Doors, Gears, Weight, Price, yhat, uhat)[1:10, ]
+```
+
+## Understanding Statistical Significance
+
+Rather than just reading the stars in the summary output, it is instructive to walk through how the t-statistics and p-values are actually computed. This builds intuition about what "statistically significant" actually means in practice.
+
+### Reproducing the t-statistics
+
+The t-statistic for each coefficient is the estimated coefficient divided by its standard error. A large absolute t-value means the coefficient estimate is far from zero relative to its uncertainty:
+
+```{r t-stats}
+# re-produce t values
+bhat <- lm.sum$coefficients[, 1]
+se <- lm.sum$coefficients[, 2]
+tstat <- bhat / se
+cbind(tstat, lm.sum$coefficients[, 3])
+```
+
+### Finding the critical t-value
+
+At the 95% confidence level, the critical t-value defines the threshold a coefficient estimate must exceed to be considered statistically significant. With large sample sizes, the t-distribution converges to the standard normal distribution:
+
+```{r t-cutoffs}
+# find t cutoffs
+df <- lm.res$df.residual
+df
+alpha <- 1 - 0.95
+qt(1 - alpha / 2, df)
+# t distribution converges to standard normal distribution as df increases
+qnorm(1 - alpha / 2)
+```
+
+### Reproducing the p-values
+
+The p-value represents the probability of observing a t-statistic at least this extreme under the null hypothesis that the true coefficient is zero. Small p-values provide strong evidence that the variable has a meaningful relationship with the outcome:
+
+```{r p-values}
+# re-produce p values
+pval <- 2 * pt(-abs(tstat), df = df)
+cbind(pval, lm.sum$coefficients[, 4])
+```
+
+### Reproducing R-squared
+
+R-squared measures what proportion of the variation in Price is explained by the model. It can be computed in three equivalent ways, all of which should yield the same answer:
+
+```{r r-squared}
+# re-produce R-squared
+lm.sum$r.squared
+var(yhat) / var(Price)
+1 - var(uhat) / var(Price)
+```
+
+All three calculations match, confirming the model explains a large share of the price variation.
+
+---
+
+## Checking for Multicollinearity (VIF)
+
+When predictor variables are correlated with each other, the regression coefficients become unstable. One predictor's effect "bleeds into" another, making it difficult to isolate which variable is truly driving the outcome. The Variance Inflation Factor (VIF) quantifies this problem. A general rule of thumb: VIF values above 5-10 are cause for concern.
+
+```{r vif}
+if (!require(car)) install.packages("car", repos = "https://cloud.r-project.org")
+library(car)
+vif(lm.res)
+```
+
+To confirm the multicollinearity, Weight is regressed on all other predictors. If Weight is highly explained by the other features, that confirms redundancy:
+
+```{r weight-collinearity}
+lm.res2 <- lm(Weight ~ Age + KM + HP + Metallic + Automatic + CC + Doors + Gears,
+               data = mydata)
+r2.Weight <- summary(lm.res2)$r.squared
+r2.Weight
+```
+
+Weight is largely explained by the other predictors, confirming the multicollinearity the VIF flagged. In practice, this means the individual coefficient on Weight (or CC, or Doors) should be interpreted with caution, even if the overall model fit is strong.
+
+---
+
+## Model Comparison: Full vs. Reduced
+
+Based on the significance tests, several predictors (Metallic, CC, Doors) were not statistically significant. A reduced model is built by dropping those variables, and the two models are compared:
+
+```{r reduced-model}
+# Drop non-significant independent variables
+lm.res3 <- lm(Price ~ Age + KM + HP + Automatic + Gears + Weight, data = mydata)
+summary(lm.res3)
+```
+
+```{r compare-models}
+summary(lm.res3)$r.squared
+summary(lm.res3)$adj.r.squared
+
+lm.sum$r.squared
+lm.sum$adj.r.squared
+```
+
+The reduced model has nearly the same R-squared as the full model, and the adjusted R-squared actually improves slightly. This tells us the dropped variables were adding noise rather than useful signal. In regression modeling, a simpler model that explains the same amount of variation is always preferred (the principle of parsimony).
+
+---
+
+## Answering Business Questions
+
+### How much does the price change if a car is one year older?
+
+Since Age in the dataset is measured in months, the coefficient must be multiplied by 12 to obtain the annual depreciation effect:
+
+```{r age-question}
+# Run the simplified regression model
+lm.new <- lm(Price ~ Age + KM + HP + Automatic + Gears + Weight, data = mydata)
+
+# View summary
+summary(lm.new)
+
+# Extract Age coefficient (Age is measured in months)
+age_coef <- coef(lm.new)["Age"]
+
+# Compute price change for one year (12 months)
+price_change_one_year <- age_coef * 12
+
+# Print results
+age_coef
+price_change_one_year
+```
+
+Holding everything else equal, each additional year of age reduces the car's price by this amount. A dealership can use this coefficient directly when pricing inventory or estimating trade-in values.
+
+### How much does the price change with 10,000 more kilometers?
+
+```{r km-question}
+# Extract KM coefficient (KM is measured in kilometers)
+km_coef <- coef(lm.new)["KM"]
+
+# Compute price change for 10,000 kilometers
+price_change_ten_thousand_km <- km_coef * 10000
+
+# Print results
+km_coef
+price_change_ten_thousand_km
+```
+
+```{r detach-data}
+detach(mydata)
+```
+
+Holding everything else equal, every additional 10,000 kilometers reduces the car's value by this amount. These are the kinds of actionable numbers a dealership pricing team or a consumer doing research would need.
+
+---
+
+# Part 2: Non-Linear Regression
+
+## Why Go Beyond Linear?
+
+A linear model assumes that the relationship between each predictor and price is a straight line. In the real world, however, some relationships are curved. Consider these examples:
+
+- The first 50,000 km on a car might depreciate its value faster than going from 150,000 to 200,000 km (the steep part of the depreciation curve has already passed).
+- The effect of mileage on price might depend on the car's age (a high-mileage young car is evaluated differently than a high-mileage old car).
+- Categorical features like color might affect resale value in ways a linear model cannot capture without explicit encoding.
+
+## The Extended Dataset
+
+This dataset adds car Color as a categorical variable:
+
+```{r load-nonlinear}
+mydata <- read.csv("data/UsedCars2_NonLinear.csv", header = TRUE, stringsAsFactors = TRUE)
+head(mydata, 4)
+str(mydata)
+attach(mydata)
+```
+
+## Qualitative Predictors: Does Color Matter?
+
+When a factor variable like Color is included in a regression, R automatically creates dummy variables (one for each color level, minus a reference category). This allows testing whether certain colors carry a price premium or discount:
+
+```{r color-model}
+# Qualitative predictors
+lm1 <- lm(Price ~ Age + KM + HP + Automatic + Gears + Weight + Color, data = mydata)
+summary(lm1)
+contrasts(Color)
+```
+
+The `contrasts()` output shows which color serves as the reference category (the one all others are compared against). Several colors show statistically significant coefficients, meaning they do affect the resale price. This aligns with market reality: black and silver cars tend to hold value better because they have broader buyer appeal in the used market.
+
+## Interaction Terms: Does the Age-KM Combination Matter?
+
+An interaction term between Age and KM tests whether the effect of mileage on price depends on the car's age (and vice versa). Using `Age * KM` in the formula includes both the main effects and their interaction:
+
+```{r interaction-model}
+# Interaction terms
+lm2 <- lm(Price ~ Age * KM + HP + Automatic + Gears + Weight, data = mydata)
+summary(lm2)
+```
+
+A significant Age:KM interaction term indicates that the marginal effect of mileage on price changes depending on the car's age. A model without this interaction would treat the KM effect as constant regardless of age, which is an oversimplification.
+
+## Polynomial Regression: Capturing the Curved Price-Mileage Relationship
+
+A scatter plot of KM vs. Price reveals the shape of the relationship:
+
+```{r scatter-km}
+# Non-linear relationship
+plot(KM, Price, cex = 0.9)
+```
+
+That relationship is clearly not linear. There is a steep drop at low mileage that flattens out at higher mileage. A straight line would be a poor fit.
+
+A 4th-degree polynomial captures this curvature. The `poly(KM, 4, raw = TRUE)` function generates KM, KM-squared, KM-cubed, and KM-to-the-fourth as separate predictor terms:
+
+```{r polynomial}
+# Polynomial fit
+fit1 <- lm(Price ~ poly(KM, 4, raw = TRUE) + Automatic, data = mydata)
+summary(fit1)
+
+KM.grid <- seq(from = min(KM), to = max(KM), by = 1000)
+preds <- predict(fit1, newdata = list(KM = KM.grid,
+                  Automatic = rep(mean(Automatic), length(KM.grid))))
+plot(KM, Price, cex = 0.9)
+lines(KM.grid, preds, col = "red", lwd = 2)
+```
+
+```{r detach-nonlinear}
+detach(mydata)
+```
+
+The red curve captures the steep initial depreciation that flattens at higher mileage. A straight line would overestimate the price of low-mileage cars and underestimate mid-range ones. This has real business implications: a dealership relying on a linear model would systematically misprice its inventory.
+
+---
+
+# Key Learning Points
+
+1. **Start with a full model, then simplify.** Including all available predictors first reveals which are significant and which are not. Dropping the non-significant ones and confirming the simpler model performs just as well (via adjusted R-squared) is a standard model selection workflow.
+
+2. **VIF analysis catches multicollinearity.** In this dataset, Weight was highly correlated with CC and other features. Keeping redundant variables in the model inflates standard errors and makes individual coefficients unreliable, even if the overall R-squared looks fine.
+
+3. **Interaction terms model how the effect of one variable depends on another.** The Age * KM interaction shows that mileage depreciation is not constant across car ages, which is consistent with how buyers actually evaluate used cars.
+
+4. **Polynomial regression captures non-linear patterns.** The price-mileage curve in this dataset is a textbook example: depreciation is steep early on and flattens with higher mileage. A linear model would systematically misprice cars at both ends of the mileage spectrum.
+
+5. **Qualitative predictors can have a measurable effect on price.** R handles the dummy variable encoding automatically, but understanding the reference category is necessary for interpreting the coefficients correctly.

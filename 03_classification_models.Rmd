@@ -1,0 +1,484 @@
+---
+title: "Classification Models: From Loan Approvals to Auction Predictions"
+author: "Nna-dozie Odinaka"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: show
+    theme: flatly
+    highlight: tango
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+# Introduction
+
+Classification is the branch of supervised learning concerned with predicting which category an observation belongs to. This project applies four classification techniques to distinct business problems, each building on the previous:
+
+**Part 1 - Logistic Regression (Loan Approvals):** A bank wants to predict which customers will accept a personal loan offer. A linear probability model is compared against logistic regression, accuracy is evaluated with a confusion matrix, and marginal effects are computed to quantify what drives loan acceptance.
+
+**Part 2 - Multinomial Logit (Commuter Mode Choice):** A city transportation authority wants to understand why commuters choose car vs. bus vs. train. Since there are more than two options, a multinomial logit model is used, and cross-elasticities are computed to show how changes in one mode's attributes shift demand to other modes.
+
+**Part 3 - Decision Trees (eBay Auctions):** An eBay seller wants to predict whether an auction will attract competitive bidding. Decision trees provide transparent, rule-based predictions that are straightforward to explain to non-technical stakeholders.
+
+**Part 4 - Random Forests (eBay Auctions):** The decision tree analysis is extended with random forests and bagging, comparing ensemble methods against a single tree to measure the improvement in accuracy.
+
+**Tools used:** Base R, `mlogit`, `rpart`, `rpart.plot`, `randomForest`
+
+---
+
+# Part 1: Loan Approval Prediction
+
+## The Business Problem
+
+A bank runs marketing campaigns offering personal loans to existing customers. Not every customer accepts, and blanket campaigns are expensive. The question: can a model predict which customers are likely to accept a loan offer based on their demographics and banking behavior? A well-performing model lets the bank focus its marketing budget on high-probability customers, reducing cost per acquisition and improving campaign ROI.
+
+## The Data
+
+The dataset contains customer records with Income, Family size, average credit card spending (CCAvg), Education level, and whether they accepted the loan offer (1 = yes, 0 = no).
+
+```{r load-loan}
+mydata <- read.csv("data/LoanData.csv")
+str(mydata)
+
+mydata$Education <- as.factor(mydata$Education)
+str(mydata)
+```
+
+Education is coded as a number (1, 2, 3) but represents categories (Undergrad, Graduate, Advanced/Professional), so it is converted to a factor to ensure R treats it correctly in the model.
+
+## Linear Probability Model (Baseline)
+
+Before moving to logistic regression, it is useful to understand why a simpler approach (running ordinary linear regression on a binary outcome) has limitations:
+
+```{r lpm}
+lpm.res <- lm(Loan ~ ., data = mydata)
+summary(lpm.res)
+```
+
+The LPM coefficients are easy to interpret ("a one-unit increase in Income increases the probability of loan acceptance by X"). However, there is a fundamental problem. A probability must be between 0 and 1. Checking the predicted values reveals the issue:
+
+```{r lpm-bounds}
+head(sort(predict(lpm.res)), 10)
+tail(sort(predict(lpm.res)), 10)
+```
+
+The model produces negative predicted probabilities and predictions above 1, which are meaningless as probabilities. This is the core motivation for using logistic regression instead.
+
+## Logistic Regression
+
+Logistic regression constrains predictions to the [0, 1] range by passing the linear predictor through a logistic function. The `family=binomial(link=logit)` argument specifies the logit link:
+
+```{r logistic}
+logit.res <- glm(Loan ~ ., family = binomial(link = logit), data = mydata)
+summary(logit.res)
+```
+
+## Confusion Matrix and Accuracy
+
+To evaluate model performance, each customer is classified as "will accept" (1) if their predicted probability exceeds the sample mean acceptance rate, and "won't accept" (0) otherwise. The confusion matrix compares predictions against actual outcomes:
+
+```{r confusion}
+yhat <- rep(1, nrow(mydata))
+yhat[predict(logit.res, type = "response") < mean(mydata$Loan)] <- 0
+
+confusion <- table(yhat, mydata$Loan)
+confusion
+```
+
+```{r accuracy}
+# Overall accuracy
+sum(diag(confusion)) / sum(confusion)
+
+# Specificity (correctly predicting non-acceptors)
+confusion[1, 1] / sum(confusion[, 1])
+
+# Sensitivity (correctly predicting acceptors)
+confusion[2, 2] / sum(confusion[, 2])
+```
+
+The model correctly identifies the majority of both acceptors and non-acceptors, demonstrating strong classification performance.
+
+## Predicting a Specific Customer
+
+Consider a customer with average Income, average Family size, average CCAvg, and Education level 2. What is their predicted probability of accepting a loan offer?
+
+First, the model coefficients and the average predictor values:
+
+```{r predict-specific}
+coef(logit.res)
+colMeans(mydata[, 2:4])
+```
+
+The prediction can be computed manually by plugging values into the logistic formula. This is useful for understanding exactly what the `predict()` function does:
+
+```{r manual-prediction}
+# Manual computation using the logistic formula
+exp(-13.17783285 + (7.540167e-03 * 0.05979075) + (0.58707882 * 2.396400) +
+    (0.16267911 * 1.937938) + 3.91060897) /
+  (1 + exp(-13.17783285 + (7.540167e-03 * 0.05979075) + (0.58707882 * 2.396400) +
+           (0.16267911 * 1.937938) + 3.91060897))
+```
+
+The same result can be obtained more conveniently using `predict()`:
+
+```{r predict-function}
+xvalues <- data.frame(Income = 73.774200, Family = 2.396400, CCAvg = 1.937938, Education = "2")
+predict(logit.res, newdata = xvalues, type = "response")
+```
+
+Both approaches yield the same answer. The manual calculation reveals the mechanics of the logistic transformation.
+
+## Comparing Coefficients: LPM vs. Logistic
+
+```{r compare-coefficients}
+coef.lpm <- coef(lpm.res)
+coef.logit <- coef(logit.res)
+cbind(coef.lpm, coef.logit)
+```
+
+The logistic coefficients are much larger in magnitude because they operate on the log-odds scale, not the probability scale directly. To make them comparable, marginal effects must be computed.
+
+## Marginal Effects
+
+In the LPM, the marginal effect (how much a one-unit change in X changes the predicted probability) is constant across all observations. It equals the coefficient. In logistic regression, the marginal effect depends on where the observation sits on the probability curve. At the extremes (very low or very high probability), changes in X have less impact on the predicted probability than in the middle of the curve.
+
+```{r marginal-effects}
+xb <- predict(logit.res, newdata = xvalues)
+PE.logit <- dlogis(xb) * (coef(logit.res)[-1])
+PE.lpm <- coef(lpm.res)[-1]
+cbind(PE.lpm, PE.logit)
+```
+
+The `dlogis()` function returns the density of the logistic distribution at the predicted log-odds value. Multiplying by the logistic coefficients scales them back to the probability scale at that specific evaluation point. This approach is more realistic than the LPM's assumption of constant marginal effects.
+
+---
+
+# Part 2: Transportation Mode Choice (Multinomial Logit)
+
+## The Business Problem
+
+A city transportation authority wants to understand what drives commuters' choice between different travel modes (car, bus, train, etc.). If bus travel time were reduced by 5 minutes, how many commuters would switch from car? These are the kinds of policy questions that discrete choice models can answer quantitatively.
+
+Since there are more than two options, a standard binary logistic model does not apply. The multinomial logit model extends logistic regression to handle multiple unordered choices.
+
+## The Data
+
+The data is in "long" format: each row represents one travel mode for one commuter, with columns for cost and time. The `mlogit.data()` function reshapes it into the structure the `mlogit` package requires:
+
+```{r load-commute}
+if (!require(mlogit)) install.packages("mlogit", repos = "https://cloud.r-project.org")
+library(mlogit)
+
+mydata <- read.csv("data/CommuteMode.csv")
+Commutemode <- mlogit.data(mydata, shape = "long", choice = "choice",
+                            alt.var = "mode", chid.var = "id")
+
+head(Commutemode)
+```
+
+## The Multinomial Logit Model
+
+Mode choice is modeled as a function of cost and travel time:
+
+```{r mlogit}
+m1.res <- mlogit(choice ~ cost + time, Commutemode)
+summary(m1.res)
+```
+
+Both cost and time have negative coefficients, which is consistent with economic theory: higher cost or longer travel time makes a mode less attractive. The magnitude of each coefficient indicates how sensitive commuters are to that factor.
+
+## Predicted Choice Probabilities
+
+For each commuter, the model outputs a probability distribution across all available modes. The mode with the highest predicted probability is the model's prediction:
+
+```{r fitted}
+head(fitted(m1.res, outcome = FALSE))
+```
+
+Each row shows one commuter's predicted probability of choosing each transportation mode.
+
+## Marginal Effects: What Happens if Travel Time Changes?
+
+This is where the model becomes especially useful for policy analysis. The marginal effects of a one-minute increase in travel time are computed for each mode, evaluated at the average cost and time values:
+
+```{r marginal-effects-commute}
+cost.avg <- tapply(Commutemode$cost, Commutemode$mode, mean)
+cost.avg
+
+time.avg <- tapply(Commutemode$time, Commutemode$mode, mean)
+time.avg
+
+xval <- data.frame(cost = cost.avg, time = time.avg)
+xval
+
+effects(m1.res, covariate = "time", data = xval)
+```
+
+This matrix is read column by column. Each column shows: if that mode's travel time increases by one minute, how does the probability of choosing every mode change? The diagonal elements are negative (increasing a mode's own travel time reduces its market share). The off-diagonal elements are positive (competing modes gain when one mode becomes less attractive).
+
+A transit authority can use this output to model the impact of service improvements or fare changes before committing resources.
+
+---
+
+# Part 3: Decision Trees for eBay Auction Prediction
+
+## The Business Problem
+
+An eBay seller wants to know whether their auction will attract competitive bidding (multiple bidders driving the price up) based on listing characteristics: item category, opening price, auction duration, seller rating, and whether it is listed on a weekend. The goal is to help sellers optimize their listings for maximum revenue.
+
+Decision trees are a natural fit for this problem because they produce transparent, rule-based predictions. A seller can follow the tree from root to leaf and understand exactly why the model arrives at a particular prediction.
+
+## The Data
+
+```{r load-auction}
+if (!require(rpart)) install.packages("rpart", repos = "https://cloud.r-project.org")
+if (!require(rpart.plot)) install.packages("rpart.plot", repos = "https://cloud.r-project.org")
+library(rpart.plot)
+library(rpart)
+
+mydata <- read.csv("data/Auctions.csv")
+
+mydata$Category <- as.factor(mydata$Category)
+mydata$Weekend <- as.factor(mydata$Weekend)
+str(mydata)
+```
+
+## Train-Test Split
+
+A portion of the data is reserved for testing. 1,000 observations go to training, and the remainder are held out to evaluate how well the model generalizes to unseen data:
+
+```{r train-test}
+set.seed(100)
+train.indx <- sample(1:nrow(mydata), 1000)
+train.df <- mydata[train.indx, ]
+test.df <- mydata[-train.indx, ]
+```
+
+## Default Decision Tree
+
+```{r default-tree, fig.width=10, fig.height=7}
+tree.default <- rpart(Competitive ~ ., data = train.df, method = "class")
+rpart.plot(tree.default, extra = 1)
+```
+
+The tree is immediately readable. Each node shows the splitting rule, the number of observations in each class, and the predicted class. Any path from root to leaf translates into a plain-English rule for the prediction.
+
+## Predicting a Specific Listing
+
+Consider a Books listing with a seller rating of 3000, 5-day duration, listed on a weekend, with an opening price of $2.00:
+
+```{r predict-specific-auction}
+newval <- data.frame(Category = "Books", SellerRating = 3000, Duration = 5,
+                     Weekend = "1", OpenPrice = 2.0)
+predict(tree.default, newval, type = "class")
+```
+
+## Growing a Large Tree, Then Pruning
+
+The primary risk with decision trees is overfitting: the tree memorizes the training data (including its noise) and performs poorly on new data. To address this, a deliberately large tree is grown with no complexity penalty (`cp=0`), and then 10-fold cross-validation is used to find the optimal pruning point:
+
+```{r large-tree}
+set.seed(1234)
+tree.large <- rpart(Competitive ~ ., data = train.df, method = "class",
+                    cp = 0, minsplit = 20, xval = 10)
+rpart.plot(tree.large, extra = 1)
+```
+
+The `printcp()` function displays the cross-validated error at each complexity level. The cp value that minimizes cross-validated error is the optimal pruning point:
+
+```{r cp-table}
+printcp(tree.large)
+```
+
+## The Pruned Tree
+
+```{r pruned-tree, fig.width=10, fig.height=7}
+tree.pruned <- prune(tree.large, cp = 0.006)
+rpart.plot(tree.pruned, extra = 1)
+```
+
+The pruned tree is much simpler than the full tree but retains the most important splitting rules.
+
+## Test Set Accuracy: Large vs. Pruned
+
+```{r test-accuracy}
+pred.large <- predict(tree.large, test.df, type = "class")
+confusion.large <- table(pred.large, test.df$Competitive)
+confusion.large
+sum(diag(confusion.large)) / sum(confusion.large)
+
+pred.pruned <- predict(tree.pruned, test.df, type = "class")
+confusion.pruned <- table(pred.pruned, test.df$Competitive)
+confusion.pruned
+sum(diag(confusion.pruned)) / sum(confusion.pruned)
+```
+
+The pruned tree achieves comparable (or better) accuracy on the test set with far fewer splits. It generalizes better because it is not memorizing the noise in the training data. This illustrates the bias-variance tradeoff: a simpler model has slightly more bias but substantially less variance.
+
+---
+
+# Part 4: Random Forests & Bagging
+
+## Why Ensemble Methods?
+
+Single decision trees are interpretable but unstable. Small changes in the training data can produce a completely different tree structure. Ensemble methods address this limitation by building many trees and combining their predictions.
+
+Two approaches are compared:
+
+- **Bagging (Bootstrap Aggregation):** Multiple trees are built on bootstrapped samples of the training data. Each tree considers ALL predictors at every split (mtry = 5, the total number of predictors).
+- **Random Forest:** Same as bagging, but each tree considers only a RANDOM SUBSET of predictors at every split (mtry = 2). This decorrelates the trees from each other, which reduces the variance of the combined ensemble.
+
+## Setup
+
+```{r rf-setup}
+if (!require(randomForest)) install.packages("randomForest", repos = "https://cloud.r-project.org")
+library(randomForest)
+
+mydata <- read.csv("data/Auctions.csv")
+
+# Make sure the outcome variable is treated as a category
+mydata$Competitive <- as.factor(mydata$Competitive)
+
+# Category is also categorical
+mydata$Category <- as.factor(mydata$Category)
+
+# Weekend is also categorical
+mydata$Weekend <- as.factor(mydata$Weekend)
+
+# Quick look at the data structure
+str(mydata)
+```
+
+```{r rf-split}
+# Fix the random split so your result stays the same each time
+set.seed(100)
+
+# Pick 1000 rows for training
+train.indx <- sample(1:nrow(mydata), 1000)
+
+# Training data
+train.df <- mydata[train.indx, ]
+
+# Test data
+test.df <- mydata[-train.indx, ]
+
+# Fix the random split to prevent random variation in results
+set.seed(1000)
+
+# Separate test predictors from the actual test answers
+x_test <- subset(test.df, select = -Competitive)
+y_test <- test.df$Competitive
+```
+
+## Bagging Model
+
+With `mtry` equal to the full number of predictors (5), every split considers all available variables. This is the definition of bagging:
+
+```{r bagging}
+# Bagging model
+# Since mtry equals the full number of predictors, every split checks all predictors
+bag.res <- randomForest(
+    Competitive ~ .,
+    data = train.df,
+    xtest = x_test,
+    ytest = y_test,
+    mtry = 5,
+    ntree = 1000,
+    importance = TRUE
+)
+```
+
+## Random Forest Model
+
+With `mtry = 2`, each split considers only 2 randomly chosen predictors. This randomness is what distinguishes random forests from bagging:
+
+```{r random-forest}
+# Random forest model
+# Here each split checks only 2 randomly chosen predictors
+rf.res <- randomForest(
+    Competitive ~ .,
+    data = train.df,
+    xtest = x_test,
+    ytest = y_test,
+    mtry = 2,
+    ntree = 1000,
+    importance = TRUE
+)
+```
+
+## Test Set Performance
+
+```{r rf-results}
+# Test-set confusion matrix
+conf.rf <- rf.res$test$confusion
+conf.rf
+
+# Test accuracy
+sum(diag(conf.rf[, 1:2])) / sum(conf.rf[, 1:2])
+
+# Final out-of-bag error after tree 1000
+rf.res$err.rate[1000, 1]
+```
+
+## Error Convergence: How Many Trees Are Needed?
+
+```{r error-curves, fig.width=10, fig.height=6}
+# Put the four error series together so we can compare them
+errors <- cbind(
+    bag.res$err.rate[, 1],
+    rf.res$err.rate[, 1],
+    bag.res$test$err.rate[, 1],
+    rf.res$test$err.rate[, 1]
+)
+
+# Plot the error curves
+matplot(errors, type = "l", col = 1:4, lty = 1:4, lwd = 1.5)
+
+# Add labels to the plot
+legend(
+    "topright",
+    legend = c("OOB: Bagging", "OOB: Random Forest", "Test: Bagging", "Test: Random Forest"),
+    col = 1:4,
+    lty = 1:4,
+    lwd = 1.5
+)
+```
+
+Both models converge after roughly 200-300 trees. The OOB (out-of-bag) error tracks the test error closely, which confirms that the OOB estimate is a reliable proxy for generalization performance, even without a separate validation set.
+
+## Variable Importance
+
+Which features matter most for predicting competitive auctions?
+
+```{r var-importance, fig.width=8, fig.height=5}
+# Check which variables matter most
+importance(rf.res, type = 2)
+
+# Plot variable importance
+varImpPlot(rf.res, type = 2)
+```
+
+The variable importance plot uses the Mean Decrease in Gini index, which measures how much each variable contributes to reducing classification impurity across all 1,000 trees in the forest. This provides clear guidance on which listing attributes have the largest impact on whether an auction becomes competitive.
+
+---
+
+# Key Learning Points
+
+1. **Logistic regression is the appropriate tool for binary classification.** The linear probability model is useful as a quick baseline, but it produces impossible probabilities (below 0, above 1). Logistic regression constrains predictions to valid probability values.
+
+2. **Marginal effects translate model coefficients into business language.** In logistic regression, raw coefficients are in log-odds and not directly interpretable. Marginal effects convert them to the probability scale ("a one-unit change in X changes the predicted probability by Y%"), which is what business stakeholders need.
+
+3. **Multinomial logit handles multi-class choice problems.** The cross-elasticity matrix (from the `effects()` function) is particularly useful for policy analysis. It reveals substitution patterns: when one mode becomes less attractive, which alternatives capture the displaced demand?
+
+4. **Decision trees provide unmatched transparency.** Any stakeholder can follow the splitting rules and understand exactly why the model made a given prediction. The tradeoff is that single trees are unstable and susceptible to overfitting.
+
+5. **Pruning prevents overfitting.** An unpruned tree memorizes the training data. Cross-validated pruning identifies the optimal complexity level that balances fit and generalization.
+
+6. **Random forests improve on single trees by averaging many decorrelated trees.** The tradeoff is interpretability: individual decision paths can no longer be traced. However, the variable importance plot compensates by identifying which features drive predictions across the entire ensemble.
