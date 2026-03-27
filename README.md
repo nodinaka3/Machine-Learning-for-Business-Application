@@ -8,7 +8,7 @@
 
 ## What This Repository Is About
 
-This repository is a collection of applied machine learning projects built during my MBA program at Georgia Institute of Technology. Each project takes a real business problem, applies a machine learning technique in R, and interprets the results in a way that business decision-makers can act on.
+This repository is a collection of Applied Machine learning projects built during my MBA program at Georgia Institute of Technology. Each project takes a real business problem, applies a machine learning technique in R, and interprets the results in a way that business decision-makers can act on.
 
 The work covers both **supervised learning** (regression, classification, decision trees, random forests) and **unsupervised learning** (clustering, recommendation systems). Every project includes the R code, the dataset, detailed explanations of the methodology, and a discussion of what the results mean for the business.
 
