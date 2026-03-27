@@ -24,7 +24,8 @@ This portfolio demonstrates two things:
 
 ### 1. Unsupervised Learning: Customer Segmentation & Recommendation Engines
 
-**File:** [01_unsupervised_learning.Rmd](01_unsupervised_learning.Rmd)
+**Overview:** [01_unsupervised_learning/README.md](01_unsupervised_learning/)
+**Code:** [01_unsupervised_learning.Rmd](01_unsupervised_learning/01_unsupervised_learning.Rmd)
 **Datasets:** ShoppingVisits.csv, MovieLens (built into the `recommenderlab` package)
 
 **Business problem:** A retailer wants to segment its customers into meaningful groups based on visit frequency and spending behavior. Separately, a recommendation engine is built that predicts which movies a new user would enjoy based on the preferences of similar users.
@@ -43,7 +44,8 @@ This portfolio demonstrates two things:
 
 ### 2. Regression Analysis: Predicting Used Car Prices
 
-**File:** [02_regression_models.Rmd](02_regression_models.Rmd)
+**Overview:** [02_regression_models/README.md](02_regression_models/)
+**Code:** [02_regression_models.Rmd](02_regression_models/02_regression_models.Rmd)
 **Datasets:** UsedCars.csv, UsedCars2_NonLinear.csv
 
 **Business problem:** A used car dealership needs a pricing model. Which features drive price the most? How much does a car depreciate per year? Per 10,000 kilometers? Does car color affect resale value? Is the relationship between mileage and price actually linear?
@@ -63,7 +65,8 @@ This portfolio demonstrates two things:
 
 ### 3. Classification Models: From Loan Approvals to Auction Predictions
 
-**File:** [03_classification_models.Rmd](03_classification_models.Rmd)
+**Overview:** [03_classification_models/README.md](03_classification_models/)
+**Code:** [03_classification_models.Rmd](03_classification_models/03_classification_models.Rmd)
 **Datasets:** LoanData.csv, CommuteMode.csv, Auctions.csv
 
 **Business problem:** Four classification tasks in one project:
@@ -88,18 +91,24 @@ This portfolio demonstrates two things:
 
 ```
 ml-business-analytics-R/
-├── README.md                          <- You are here
+├── README.md                              <- You are here
 ├── .gitignore
 ├── data/
-│   ├── ShoppingVisits.csv             <- Retail customer visit/spend data (100 obs)
-│   ├── UsedCars.csv                   <- Toyota Corolla pricing data (9 features)
-│   ├── UsedCars2_NonLinear.csv        <- Extended car data with Color variable
-│   ├── LoanData.csv                   <- Bank customer loan acceptance data
-│   ├── CommuteMode.csv                <- Commuter transportation mode choice data
-│   └── Auctions.csv                   <- eBay auction competitiveness data
-├── 01_unsupervised_learning.Rmd       <- Clustering + collaborative filtering
-├── 02_regression_models.Rmd           <- Linear + non-linear regression
-└── 03_classification_models.Rmd       <- Logistic, multinomial, trees, forests
+│   ├── ShoppingVisits.csv                 <- Retail customer visit/spend data (100 obs)
+│   ├── UsedCars.csv                       <- Toyota Corolla pricing data (9 features)
+│   ├── UsedCars2_NonLinear.csv            <- Extended car data with Color variable
+│   ├── LoanData.csv                       <- Bank customer loan acceptance data
+│   ├── CommuteMode.csv                    <- Commuter transportation mode choice data
+│   └── Auctions.csv                       <- eBay auction competitiveness data
+├── 01_unsupervised_learning/
+│   ├── README.md                          <- Project overview & walkthrough
+│   └── 01_unsupervised_learning.Rmd       <- Clustering + collaborative filtering
+├── 02_regression_models/
+│   ├── README.md                          <- Project overview & walkthrough
+│   └── 02_regression_models.Rmd           <- Linear + non-linear regression
+└── 03_classification_models/
+    ├── README.md                          <- Project overview & walkthrough
+    └── 03_classification_models.Rmd       <- Logistic, multinomial, trees, forests
 ```
 
 ---
@@ -144,16 +153,16 @@ ml-business-analytics-R/
 
 ## How to Run
 
-1. Clone this repo: `git clone https://github.com/YOUR_USERNAME/ml-business-analytics-R.git`
+1. Clone this repo: `git clone https://github.com/nodinaka3/Machine-Learning-for-Business-Application.git`
 2. Open any `.Rmd` file in VS Code or other IDE of choice(with the R extension) or RStudio
 3. Install required packages if needed (each .Rmd file includes install checks)
 4. Knit to HTML from the terminal:
    ```r
-   rmarkdown::render("01_unsupervised_learning.Rmd")
-   rmarkdown::render("02_regression_models.Rmd")
-   rmarkdown::render("03_classification_models.Rmd")
+   rmarkdown::render("01_unsupervised_learning/01_unsupervised_learning.Rmd")
+   rmarkdown::render("02_regression_models/02_regression_models.Rmd")
+   rmarkdown::render("03_classification_models/03_classification_models.Rmd")
    ```
-5. All data files are in the `data/` folder and relative paths are used throughout, so no `setwd()` calls are needed
+5. All data files are in the `data/` folder and relative paths (`../data/`) are used in each .Rmd file, so no `setwd()` calls are needed
 
 ---
 
