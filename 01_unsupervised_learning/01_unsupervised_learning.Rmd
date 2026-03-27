@@ -1,0 +1,300 @@
+---
+title: "Unsupervised Learning: Customer Segmentation & Recommendation Engines"
+author: "Nna-dozie Odinaka"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: show
+    theme: flatly
+    highlight: tango
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+# Introduction
+
+Unsupervised learning refers to a class of machine learning methods that find structure in data without relying on predefined labels. Unlike supervised learning, where the algorithm is trained on known outcomes, unsupervised methods discover patterns on their own. This makes them particularly useful in business contexts where the goal is exploration rather than prediction.
+
+This project applies two unsupervised techniques to real business problems:
+
+**Part 1 - Customer Segmentation with Clustering:** A retailer collects data on how often customers visit and how much they spend per visit. The business question is straightforward: can these customers be grouped into meaningful segments so that marketing, loyalty programs, and promotions can be tailored to each group? Both K-means and hierarchical clustering are applied, compared against each other, and evaluated for the optimal number of segments.
+
+**Part 2 - Movie Recommendation Engine:** Recommendation systems power platforms like Netflix, Amazon, and Spotify. This section builds a user-based collaborative filtering model using the MovieLens dataset. The concept: identify users who rate movies similarly, then recommend what those similar users liked but the target user hasn't seen yet.
+
+**Tools used:** Base R, `recommenderlab`
+
+---
+
+# Part 1: Customer Segmentation with Clustering
+
+## The data
+
+The dataset contains 100 customers with two variables: the number of times they visited a store and how much money they spent. While simple, this is a good representation of the kind of customer data retailers actually collect and use for segmentation.
+
+```{r load-data}
+mydata <- read.csv("../data/ShoppingVisits.csv")
+str(mydata)
+summary(mydata)
+```
+
+Only the two relevant columns are needed for this analysis:
+
+```{r subset-data}
+mydata <- mydata[, c(1, 2)]
+mydata
+```
+
+A scatter plot of the raw data provides a first look at the underlying structure:
+
+```{r scatter-raw}
+plot(mydata, pch = 20)
+```
+
+Even from this raw scatter plot, what appears to be 2 or 3 natural groupings can be observed. The clustering algorithms will formalize that observation.
+
+---
+
+## K-means Clustering: Why Scaling Matters
+
+### Without scaling
+
+The first step is to run K-means with k=3 clusters on the raw (unscaled) data. The `nstart=20` argument tells R to run the algorithm 20 times with different random starting points and keep the best result. This helps avoid getting stuck in a poor local minimum, which is a known limitation of K-means.
+
+```{r kmeans-raw}
+km3_raw <- kmeans(mydata, 3, nstart = 20)
+km3_raw
+km3_raw$cluster
+plot(mydata, col = km3_raw$cluster, pch = 20, main = "k-means without Scaling")
+```
+
+### With scaling
+
+Next, the data is standardized using `scale()`, which transforms each variable to have mean = 0 and standard deviation = 1. This ensures both variables contribute equally to the distance calculations that K-means relies on.
+
+```{r kmeans-scaled}
+mydata_sc <- scale(mydata)
+mydata_sc
+
+km3_sc <- kmeans(mydata_sc, 3, nstart = 20)
+km3_sc
+
+plot(mydata, col = km3_sc$cluster, pch = 20, main = "k-means with Scaling")
+```
+
+### Side-by-side comparison
+
+```{r compare-scaling, fig.width=10, fig.height=5}
+par(mfrow = c(1, 2))
+plot(mydata, col = km3_raw$cluster, pch = 20, main = "k-means without Scaling")
+plot(mydata, col = km3_sc$cluster, pch = 20, main = "k-means with Scaling")
+```
+
+**Key observation:** Scaling significantly affects the K-means clustering results. Without scaling, the clustering is dominated by the variable with the larger numerical range (money), causing visit frequency to have little influence on cluster assignment. After scaling, both variables contribute equally, resulting in clusters that reflect differences in both shopping frequency and spending behavior. Therefore, the clustering with scaling is more appropriate.
+
+This is a general rule in practice: distance-based algorithms like K-means should always be run on standardized data. Otherwise, the variable with the largest scale will dominate the analysis.
+
+---
+
+## Choosing the Number of Clusters (k)
+
+### Visual comparison: k = 2, 3, 4, 5
+
+A natural question is: how many segments actually exist in this data? Running K-means with different values of k and comparing the results visually is one approach:
+
+```{r multiple-k, fig.width=10, fig.height=8}
+km2_sc <- kmeans(mydata_sc, 2, nstart = 20)
+km4_sc <- kmeans(mydata_sc, 4, nstart = 20)
+km5_sc <- kmeans(mydata_sc, 5, nstart = 20)
+
+par(mfrow = c(2, 2))
+plot(mydata, col = km2_sc$cluster, pch = 20, main = "k-means with 2 Clusters")
+plot(mydata, col = km3_sc$cluster, pch = 20, main = "k-means with 3 Clusters")
+plot(mydata, col = km4_sc$cluster, pch = 20, main = "k-means with 4 Clusters")
+plot(mydata, col = km5_sc$cluster, pch = 20, main = "k-means with 5 Clusters")
+```
+
+Based on the visual comparison, k=3 provides the most appropriate solution. The three-cluster model captures clear and interpretable customer segments based on both visit frequency and spending behavior. Using fewer clusters (k=2) oversimplifies the data, while using more clusters (k=4, k=5) results in unnecessary fragmentation without meaningful additional insight.
+
+### The Elbow Chart
+
+While visual inspection is useful, a more systematic approach is the elbow chart. This plot shows the total within-cluster sum of squares (a measure of how tightly grouped each cluster is) for each value of k. The "elbow" in the curve is where adding more clusters stops producing meaningful improvement:
+
+```{r elbow-chart}
+ss1 <- km2_sc$totss
+ss2 <- km2_sc$tot.withinss
+ss3 <- km3_sc$tot.withinss
+ss4 <- km4_sc$tot.withinss
+ss5 <- km5_sc$tot.withinss
+ss.vec <- c(ss1, ss2, ss3, ss4, ss5)
+
+par(mfrow = c(1, 1))
+plot(ss.vec, type = "b", xlab = "Number if Clusters", ylab = "Total within-Cluster ss",
+     main = "Elbow cluster chart")
+```
+
+Based on the elbow chart, k=3 is confirmed as the most appropriate number of clusters. The total within-cluster sum of squares decreases sharply up to k=3, after which the rate of decrease slows considerably. This indicates that additional clusters beyond three provide only marginal improvement in cluster tightness.
+
+---
+
+## Hierarchical Clustering
+
+K-means requires specifying k upfront. Hierarchical clustering takes a different approach: it builds a tree structure (dendrogram) showing how all observations merge together step by step, and the tree can be cut at any height to produce the desired number of clusters.
+
+### Dendrogram with average linkage
+
+```{r dendrogram}
+hc_average <- hclust(dist(mydata_sc), method = "average")
+plot(hc_average, labels = FALSE,
+     main = "Hierarchical Clustering Dendrogram (Average Linkage)",
+     xlab = "", ylab = "", sub = "Euclidean distance on scaled data")
+```
+
+To obtain 3 clusters, the dendrogram needs to be cut at the appropriate height. For n=100 observations, having k=3 clusters requires 97 merges. Cutting between height[97] and height[98] stably yields 3 clusters:
+
+```{r cut-dendrogram}
+# hclust heights are increasing; after i merges we have (n - i) clusters.
+# For n=100, to have k=3 clusters we need i = 100 - 3 = 97 merges.
+cut_hc_3 <- (hc_average$height[97] + hc_average$height[98]) / 2
+
+plot(hc_average, labels = FALSE,
+     main = "Hierarchical Clustering Dendrogram (Average Linkage)",
+     xlab = "", ylab = "", sub = "Euclidean distance on scaled data")
+abline(h = cut_hc_3, col = "red", lty = 2)
+```
+
+The red dashed line indicates the cut height for 3 clusters.
+
+---
+
+## K-means vs. Hierarchical: How Do They Compare?
+
+A useful validation technique is to run both K-means and hierarchical clustering and check whether they produce similar segments:
+
+```{r kmeans-vs-hclust, fig.width=10, fig.height=5}
+hc3 <- cutree(hc_average, k = 3)
+
+par(mfrow = c(1, 2))
+plot(mydata, col = km3_sc$cluster, pch = 20, main = "K-means with 3 Clusters")
+plot(mydata, col = hc3, pch = 20, main = "Hierarchical Clustering (Average)")
+```
+
+Both methods produce very similar segments. When two fundamentally different algorithms agree on the cluster structure, it provides stronger evidence that these customer segments represent real patterns in the data rather than artifacts of one particular method.
+
+---
+
+## Comparing Different Linkage Methods
+
+In hierarchical clustering, the "linkage" method determines how the distance between two clusters is measured. Different linkage methods can produce different results. The four most common methods are compared below:
+
+- **Average linkage:** uses the mean distance between all pairs of points in two clusters
+- **Complete linkage:** uses the maximum distance between any two points in the clusters
+- **Single linkage:** uses the minimum distance between any two points
+- **Centroid linkage:** uses the distance between cluster centroids
+
+```{r linkage-comparison, fig.width=10, fig.height=8}
+hc_complete <- hclust(dist(mydata_sc), method = "complete")
+hc_single   <- hclust(dist(mydata_sc), method = "single")
+hc_centroid <- hclust(dist(mydata_sc), method = "centroid")
+
+cl_avg      <- cutree(hc_average, k = 3)
+cl_complete <- cutree(hc_complete, k = 3)
+cl_single   <- cutree(hc_single, k = 3)
+cl_centroid <- cutree(hc_centroid, k = 3)
+
+par(mfrow = c(2, 2))
+plot(mydata, col = cl_avg, pch = 20, main = "Hierarchical (Average Linkage)")
+plot(mydata, col = cl_complete, pch = 20, main = "Hierarchical (Complete Linkage)")
+plot(mydata, col = cl_single, pch = 20, main = "Hierarchical (Single Linkage)")
+plot(mydata, col = cl_centroid, pch = 20, main = "Hierarchical (Centroid Linkage)")
+```
+
+Average and complete linkage produce the most balanced, interpretable segments. Single linkage exhibits a known problem called "chaining," where it tends to produce one very large cluster and a few small stragglers. For business applications where actionable segments of reasonable size are needed, average or complete linkage is typically the better choice.
+
+---
+
+## Business Takeaway
+
+With 3 customer segments identified and validated across multiple methods, a retailer could design targeted strategies:
+
+- **Low-frequency, low-spend customers:** Re-engagement campaigns, introductory discounts, or win-back emails to increase visit frequency.
+- **Moderate-frequency, moderate-spend customers:** The core customer base. Loyalty programs and bundle deals could push this group toward higher spend per visit.
+- **High-frequency, high-spend customers:** The VIP segment. Exclusive offers, early access to sales, and premium customer service would help retain these high-value customers.
+
+---
+
+# Part 2: Building a Movie Recommendation Engine
+
+## The Concept
+
+Collaborative filtering is the technique behind most recommendation engines in production today. User-based collaborative filtering (UBCF) works by identifying users who have similar taste profiles (based on their past ratings) and then recommending items those similar users enjoyed. Unlike content-based methods, it does not require any information about the items themselves.
+
+## Setup and Data
+
+The MovieLens dataset is a classic benchmark in recommender systems research. It contains 100,000 ratings from 943 users on 1,664 movies.
+
+```{r recommender-setup}
+if (!require(recommenderlab)) install.packages("recommenderlab", repos = "https://cloud.r-project.org")
+library(recommenderlab)
+
+# Load MovieLense dataset (included in recommenderlab)
+data(MovieLense)
+
+getRatingMatrix(MovieLense)
+```
+
+## Creating a New User Profile
+
+To simulate a new user entering the system, a set of 15 movie ratings is provided. The ratings range from 1 (disliked) to 5 (loved). Movies not rated are left as NA, which is standard in sparse rating matrices:
+
+```{r my-ratings}
+# Create ratings for 15 movies from the dataset
+# Use NA for any movie not rated.
+myrating <- matrix(NA, 1, 1664)
+myrating[c(1, 11, 12, 22, 23, 29, 50, 56, 64, 71, 82, 88, 94, 96, 98)] <-
+  c(5, 1, 1, 2, 4, 5, 5, 4, 5, 5, 3, 1, 5, 4, 2)
+
+# Convert to a realRatingMatrix
+myrating <- as(myrating, "realRatingMatrix")
+```
+
+## Training the Recommender and Generating Predictions
+
+The recommender is trained on the full MovieLens dataset. It then takes the 15 ratings from the new user, finds the most similar users in the database, and predicts the top 10 movies the new user is most likely to enjoy:
+
+```{r generate-recommendations}
+rec.ub <- Recommender(MovieLense, "UBCF")
+
+pred.ub <- predict(rec.ub, myrating, n = 10, type = "topNList")
+as(pred.ub, "list")
+```
+
+## How UBCF Works Under the Hood
+
+The algorithm follows four steps:
+
+1. **Similarity calculation:** The similarity between the new user's rating vector and every existing user's rating vector is computed (typically using cosine similarity or Pearson correlation).
+2. **Neighbor selection:** The k most similar users ("neighbors") are identified.
+3. **Prediction:** For each movie the new user has not rated, a weighted average of the neighbors' ratings is computed, weighted by similarity to the new user.
+4. **Ranking:** Movies are ranked by predicted rating, and the top-N are returned as recommendations.
+
+What makes this approach powerful is that even with only 15 ratings from a new user, the algorithm can leverage the full dataset of 943 users and 100,000 ratings to find meaningful patterns. The sparsity of the new user's profile is compensated by the richness of the existing data.
+
+---
+
+# Key Learning Points
+
+1. **Always scale data before running distance-based algorithms** like K-means. If one variable has a larger range, it will dominate the clustering and the other variables will have minimal influence on the results.
+
+2. **Use multiple methods and compare.** Running both K-means and hierarchical clustering and checking for agreement provides stronger evidence that the discovered segments are real patterns rather than method-specific artifacts.
+
+3. **The elbow chart provides a data-driven approach to choosing k,** rather than relying on guesswork. The point where the curve bends and additional clusters stop providing meaningful improvement is the recommended value.
+
+4. **Linkage method choice matters** in hierarchical clustering. Average and complete linkage tend to produce balanced, interpretable clusters, while single linkage often creates lopsided results due to chaining.
+
+5. **Collaborative filtering is effective even with sparse data.** A small number of ratings from a new user can be enough to generate a personalized recommendation list, because the algorithm draws on the collective preferences of the entire user base.
